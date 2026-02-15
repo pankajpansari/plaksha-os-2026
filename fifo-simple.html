@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIFO Scheduling — CPU Scheduling Visualization</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Source Sans 3', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #FAFAF8;
+    color: #2A2A2A;
+    min-height: 100vh;
+    padding: 32px 36px;
+  }
+
+  h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1A1A1A;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 28px;
+  }
+
+  /* Step buttons */
+  .steps { display: flex; gap: 8px; margin-bottom: 28px; flex-wrap: wrap; }
+
+  .step-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1.5px solid #DDD;
+    background: #FFF;
+    color: #666;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .step-btn:hover { border-color: #BBB; }
+  .step-btn.active {
+    border: 2px solid #2A2A2A;
+    background: #2A2A2A;
+    color: #FFF;
+  }
+
+  .snap-label {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1A1A1A;
+    margin-bottom: 20px;
+  }
+
+  /* Panels */
+  .panel {
+    background: #FFF;
+    border: 1.5px solid #E8E8E8;
+    border-radius: 10px;
+    padding: 20px 24px 28px;
+    margin-bottom: 16px;
+  }
+
+  .panel-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #AAA;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+
+  /* Queue */
+  .queue-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+  }
+
+  .queue-box {
+    width: 56px;
+    height: 56px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 700;
+    position: relative;
+    transition: all 0.2s;
+  }
+
+  .queue-box .next-label {
+    position: absolute;
+    bottom: -20px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .queue-empty {
+    color: #BBB;
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  /* Timeline */
+  .timeline-wrap { overflow-x: auto; }
+
+  .timeline {
+    position: relative;
+    height: 52px;
+    width: 540px; /* 30 * 18px */
+  }
+
+  .timeline-track {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 40px;
+    background: #F3F3F3;
+    border-radius: 5px;
+    border: 1px solid #E0E0E0;
+  }
+
+  .timeline-block {
+    position: absolute;
+    top: 1px;
+    height: 38px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #FFF;
+    transition: width 0.25s, left 0.25s;
+  }
+
+  .timeline-tick {
+    position: absolute;
+    top: 43px;
+    font-size: 11px;
+    color: #999;
+    font-weight: 500;
+    transform: translateX(-50%);
+  }
+
+  /* Note */
+  .note {
+    padding: 14px 18px;
+    background: #F5F3EF;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #555;
+    line-height: 1.6;
+    border-left: 3px solid #CCC;
+  }
+
+  /* Nav */
+  .nav { display: flex; gap: 10px; margin-top: 24px; }
+
+  .nav-btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: 1.5px solid #DDD;
+    background: #FFF;
+    color: #555;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .nav-btn:hover:not(:disabled) { border-color: #BBB; }
+  .nav-btn:disabled { color: #CCC; cursor: default; }
+
+  /* Keyboard hint */
+  .kbd-hint {
+    margin-top: 20px;
+    font-size: 11px;
+    color: #BBB;
+  }
+  kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid #DDD;
+    border-radius: 3px;
+    background: #F5F5F5;
+    font-family: inherit;
+    font-size: 11px;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+
+<h1>FIFO Scheduling</h1>
+<p class="subtitle">Equal burst times — all jobs arrive at t = 0, each needs 10 units of CPU</p>
+
+<div class="steps" id="steps"></div>
+<div class="snap-label" id="snapLabel"></div>
+
+<!-- Ready Queue -->
+<div class="panel">
+  <div class="panel-title">Ready Queue</div>
+  <div class="queue-row" id="queue"></div>
+</div>
+
+<!-- Execution Timeline -->
+<div class="panel">
+  <div class="panel-title">Execution Timeline</div>
+  <div class="timeline-wrap">
+    <div class="timeline" id="timeline">
+      <div class="timeline-track"></div>
+    </div>
+  </div>
+</div>
+
+<div class="note" id="note"></div>
+
+<div class="nav">
+  <button class="nav-btn" id="prevBtn" onclick="go(-1)">← Prev</button>
+  <button class="nav-btn" id="nextBtn" onclick="go(1)">Next →</button>
+</div>
+
+<div class="kbd-hint">
+  Use <kbd>←</kbd> <kbd>→</kbd> arrow keys to navigate
+</div>
+
+<script>
+const JOBS = [
+  { id: "A", burst: 10, color: "#D95534" },
+  { id: "B", burst: 10, color: "#2E7DB3" },
+  { id: "C", burst: 10, color: "#3A9E3F" },
+];
+
+const jobMap = {};
+JOBS.forEach(j => jobMap[j.id] = j);
+
+const PX = 18; // px per time unit
+
+const snapshots = [
+  {
+    time: 0,
+    label: "t = 0 — All jobs arrive",
+    queue: ["A", "B", "C"],
+    next: "A",
+    blocks: [],
+    note: "A, B, C all arrive simultaneously. FIFO picks A (arrived first).",
+  },
+  {
+    time: 10,
+    label: "t = 10 — A completes",
+    queue: ["B", "C"],
+    next: "B",
+    blocks: [{ job: "A", start: 0, end: 10 }],
+    note: "A finishes. B is next in line.",
+  },
+  {
+    time: 20,
+    label: "t = 20 — B completes",
+    queue: ["C"],
+    next: "C",
+    blocks: [
+      { job: "A", start: 0, end: 10 },
+      { job: "B", start: 10, end: 20 },
+    ],
+    note: "B finishes. C is the last job remaining.",
+  },
+  {
+    time: 30,
+    label: "t = 30 — C completes",
+    queue: [],
+    next: null,
+    blocks: [
+      { job: "A", start: 0, end: 10 },
+      { job: "B", start: 10, end: 20 },
+      { job: "C", start: 20, end: 30 },
+    ],
+    note: "All jobs done. Average turnaround = (10 + 20 + 30) / 3 = 20.",
+  },
+];
+
+let step = 0;
+
+function render() {
+  const snap = snapshots[step];
+
+  // Step buttons
+  const stepsEl = document.getElementById("steps");
+  stepsEl.innerHTML = snapshots.map((s, i) =>
+    `<button class="step-btn ${i === step ? 'active' : ''}" onclick="setStep(${i})">${s.label.split("—")[0].trim()}</button>`
+  ).join("");
+
+  // Label
+  document.getElementById("snapLabel").textContent = snap.label;
+
+  // Queue
+  const queueEl = document.getElementById("queue");
+  if (snap.queue.length === 0) {
+    queueEl.innerHTML = `<span class="queue-empty">empty — all jobs completed</span>`;
+  } else {
+    queueEl.innerHTML = snap.queue.map(id => {
+      const j = jobMap[id];
+      const isNext = id === snap.next;
+      return `<div class="queue-box" style="
+        background: ${isNext ? j.color : '#FFF'};
+        border: ${isNext ? '2.5px' : '2px'} solid ${j.color};
+        color: ${isNext ? '#FFF' : j.color};
+      ">${j.id}${isNext ? `<span class="next-label" style="color:${j.color}">▸ next</span>` : ''}</div>`;
+    }).join("");
+  }
+
+  // Timeline
+  const tlEl = document.getElementById("timeline");
+  // Keep track element, clear blocks
+  const existing = tlEl.querySelectorAll(".timeline-block, .timeline-tick");
+  existing.forEach(el => el.remove());
+
+  snap.blocks.forEach(b => {
+    const j = jobMap[b.job];
+    const div = document.createElement("div");
+    div.className = "timeline-block";
+    div.style.left = (b.start * PX) + "px";
+    div.style.width = ((b.end - b.start) * PX) + "px";
+    div.style.background = j.color;
+    div.textContent = j.id;
+    tlEl.appendChild(div);
+  });
+
+  [0, 10, 20, 30].forEach(t => {
+    const tick = document.createElement("div");
+    tick.className = "timeline-tick";
+    tick.style.left = (t * PX) + "px";
+    tick.textContent = t;
+    tlEl.appendChild(tick);
+  });
+
+  // Note
+  document.getElementById("note").textContent = snap.note;
+
+  // Nav
+  document.getElementById("prevBtn").disabled = step === 0;
+  document.getElementById("nextBtn").disabled = step === snapshots.length - 1;
+}
+
+function setStep(i) {
+  step = i;
+  render();
+}
+
+function go(delta) {
+  const next = step + delta;
+  if (next >= 0 && next < snapshots.length) {
+    step = next;
+    render();
+  }
+}
+
+// Keyboard nav
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === "Right") go(1);
+  if (e.key === "ArrowLeft" || e.key === "Left") go(-1);
+});
+
+// Init
+render();
+</script>
+</body>
+</html>
