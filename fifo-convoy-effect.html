@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIFO Scheduling — Convoy Effect (Extended)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Source+Code+Pro:wght@400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #FAFAF8;
+    --card: #FFFFFF;
+    --border: #E2E0DC;
+    --text: #2C2A26;
+    --text-secondary: #7A776F;
+    --text-tertiary: #A8A49C;
+    --color-a: #D95534;
+    --color-b: #2E7DB3;
+    --color-c: #3A9E3F;
+    --color-d: #8B5CF6;
+    --color-e: #D97706;
+    --font: 'Source Sans 3', 'Source Sans Pro', -apple-system, system-ui, sans-serif;
+    --mono: 'Source Code Pro', 'SF Mono', 'Consolas', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 2rem 1.5rem;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  header { margin-bottom: 1.75rem; }
+  header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  header .subtitle {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    max-width: 640px;
+  }
+  .job-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-top: 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+  }
+  .job-legend span {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  .legend-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* Step controls */
+  .step-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  .step-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .step-btn:hover:not(:disabled) {
+    background: #F3F2EF;
+    border-color: #CAC7C0;
+  }
+  .step-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .step-indicator {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+    min-width: 4rem;
+    text-align: center;
+  }
+  .step-dots {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  .step-dot.active { background: var(--text); }
+
+  /* Card */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .card-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .card-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+  }
+  .time-badge {
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: #F3F2EF;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  /* Ready Queue */
+  .queue-area {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    min-height: 76px;
+    flex-wrap: wrap;
+  }
+  .queue-job {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .queue-box {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.05rem;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .queue-box .burst-label {
+    font-size: 0.5625rem;
+    font-weight: 600;
+    opacity: 0.8;
+    margin-top: 1px;
+  }
+  .queue-box.filled { color: #fff; }
+  .queue-box.outlined {
+    background: transparent;
+    border-width: 2px;
+    border-style: solid;
+  }
+  .queue-box.done {
+    background: #F3F2EF;
+    color: var(--text-tertiary);
+    border: 1px dashed var(--border);
+  }
+  .queue-box.done .burst-label { display: none; }
+  .queue-tag {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    height: 1rem;
+  }
+  .queue-tag.next { color: var(--text); }
+
+  /* Queue separator arrow */
+  .queue-sep {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    color: var(--border);
+    font-size: 1.25rem;
+    user-select: none;
+  }
+
+  /* Timeline / Gantt */
+  .timeline-area { position: relative; }
+  .gantt-track {
+    position: relative;
+    height: 44px;
+    background: #F7F6F3;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+  }
+  .gantt-block {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.9375rem;
+    color: #fff;
+    border-radius: 6px;
+    min-width: 2px;
+  }
+  .gantt-block span { opacity: 0.95; }
+  .gantt-block .block-dur {
+    font-size: 0.625rem;
+    font-weight: 600;
+    opacity: 0.7;
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+  }
+  .tick-row {
+    position: relative;
+    height: 20px;
+  }
+  .tick-mark {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 0.6875rem;
+    font-family: var(--mono);
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+  .gantt-cursor {
+    position: absolute;
+    top: -4px;
+    width: 2px;
+    height: calc(44px + 8px);
+    background: var(--text);
+    border-radius: 1px;
+    opacity: 0.25;
+  }
+
+  /* Note */
+  .note-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.125rem 1.5rem;
+  }
+  .note-text {
+    font-size: 0.9375rem;
+    color: var(--text);
+    line-height: 1.65;
+  }
+  .note-text .math {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    background: #F7F6F3;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+    margin: 2px 0;
+  }
+  .note-text strong { font-weight: 600; }
+  .note-text .hl-a { color: var(--color-a); font-weight: 600; }
+  .note-text .hl-b { color: var(--color-b); font-weight: 600; }
+  .note-text .hl-c { color: var(--color-c); font-weight: 600; }
+  .note-text .hl-d { color: var(--color-d); font-weight: 600; }
+  .note-text .hl-e { color: var(--color-e); font-weight: 600; }
+
+  /* Stats chips */
+  .stats-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .stat-chip {
+    font-size: 0.8125rem;
+    font-family: var(--mono);
+    padding: 4px 10px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Footer nav */
+  .footer-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1.25rem;
+  }
+  .key-hint {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+  }
+  kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    background: #F3F2EF;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 1rem; }
+    .card { padding: 1rem; }
+    .queue-box { width: 44px; height: 44px; font-size: 0.9375rem; }
+    .queue-box .burst-label { font-size: 0.5rem; }
+    .queue-area { gap: 0.5rem; }
+    .queue-sep { font-size: 1rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>FIFO Scheduling — The Convoy Effect</h1>
+    <p class="subtitle">Five jobs arrive at t = 0. A heavyweight job at the front of the queue forces four shorter jobs to wait, ballooning their turnaround times.</p>
+    <div class="job-legend">
+      <span><span class="legend-swatch" style="background:var(--color-a)"></span>A (burst = 80)</span>
+      <span><span class="legend-swatch" style="background:var(--color-b)"></span>B (burst = 15)</span>
+      <span><span class="legend-swatch" style="background:var(--color-c)"></span>C (burst = 5)</span>
+      <span><span class="legend-swatch" style="background:var(--color-d)"></span>D (burst = 25)</span>
+      <span><span class="legend-swatch" style="background:var(--color-e)"></span>E (burst = 10)</span>
+    </div>
+  </header>
+
+  <div class="step-controls">
+    <button class="step-btn" id="btn-prev" disabled>← Prev</button>
+    <span class="step-indicator" id="step-label">1 / 6</span>
+    <button class="step-btn" id="btn-next">Next →</button>
+    <div class="step-dots" id="step-dots"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-label">Ready Queue</span>
+      <span class="time-badge" id="time-badge">t = 0</span>
+    </div>
+    <div class="queue-area" id="queue-area"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-label">Execution Timeline</span>
+    </div>
+    <div class="timeline-area" id="timeline-area">
+      <div class="gantt-track" id="gantt-track"></div>
+      <div class="tick-row" id="tick-row"></div>
+    </div>
+  </div>
+
+  <div class="note-card">
+    <div class="note-text" id="note-text"></div>
+  </div>
+
+  <div class="footer-nav">
+    <button class="step-btn" id="btn-prev2" disabled>← Prev</button>
+    <span class="key-hint">Use <kbd>←</kbd> <kbd>→</kbd> arrow keys</span>
+    <button class="step-btn" id="btn-next2">Next →</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  const JOBS = [
+    { name: 'A', burst: 80, color: '#D95534' },
+    { name: 'B', burst: 15, color: '#2E7DB3' },
+    { name: 'C', burst:  5, color: '#3A9E3F' },
+    { name: 'D', burst: 25, color: '#8B5CF6' },
+    { name: 'E', burst: 10, color: '#D97706' }
+  ];
+
+  const TOTAL_TIME = 135;
+  const COLORS = {};
+  const BURSTS = {};
+  JOBS.forEach(j => { COLORS[j.name] = j.color; BURSTS[j.name] = j.burst; });
+
+  // FIFO execution: A 0-80, B 80-95, C 95-100, D 100-125, E 125-135
+  const execBlocks = [];
+  let t = 0;
+  JOBS.forEach(j => {
+    execBlocks.push({ name: j.name, start: t, end: t + j.burst });
+    t += j.burst;
+  });
+
+  // SJF for comparison: C(5)→E(10)→B(15)→D(25)→A(80)
+  // Turnarounds: 5, 15, 30, 55, 135 → avg = 48
+
+  function chipHtml(name, value) {
+    return `<span class="stat-chip" style="background:${COLORS[name]}18; color:${COLORS[name]}"><span class="dot" style="background:${COLORS[name]}"></span>${name} = ${value}</span>`;
+  }
+
+  const snapshots = [
+    {
+      time: 0,
+      queue: [
+        { name: 'A', state: 'next' },
+        { name: 'B', state: 'waiting' },
+        { name: 'C', state: 'waiting' },
+        { name: 'D', state: 'waiting' },
+        { name: 'E', state: 'waiting' }
+      ],
+      blocksUpTo: 0,
+      note: 'All five jobs arrive at <strong>t = 0</strong>. Under FIFO, the queue is served in arrival order. Job <span class="hl-a">A</span> — with the largest burst of 80 — goes first. The four shorter jobs (<span class="hl-b">B</span>, <span class="hl-c">C</span>, <span class="hl-d">D</span>, <span class="hl-e">E</span> with bursts 15, 5, 25, 10) must all wait behind it.'
+    },
+    {
+      time: 80,
+      queue: [
+        { name: 'A', state: 'done' },
+        { name: 'B', state: 'next' },
+        { name: 'C', state: 'waiting' },
+        { name: 'D', state: 'waiting' },
+        { name: 'E', state: 'waiting' }
+      ],
+      blocksUpTo: 1,
+      note: '<span class="hl-a">A</span> finally completes after <strong>80 time units</strong>. This is the <strong>convoy effect</strong> — four jobs that together need only 55 units of CPU have been blocked behind a single heavyweight. Job <span class="hl-b">B</span> (burst = 15) is up next.'
+    },
+    {
+      time: 95,
+      queue: [
+        { name: 'A', state: 'done' },
+        { name: 'B', state: 'done' },
+        { name: 'C', state: 'next' },
+        { name: 'D', state: 'waiting' },
+        { name: 'E', state: 'waiting' }
+      ],
+      blocksUpTo: 2,
+      note: '<span class="hl-b">B</span> finishes at t = 95. Its turnaround is 95 — yet it only needed 15 units of CPU. It spent <strong>84%</strong> of its turnaround time simply waiting in the queue. Tiny job <span class="hl-c">C</span> (burst = 5) is up next.'
+    },
+    {
+      time: 100,
+      queue: [
+        { name: 'A', state: 'done' },
+        { name: 'B', state: 'done' },
+        { name: 'C', state: 'done' },
+        { name: 'D', state: 'next' },
+        { name: 'E', state: 'waiting' }
+      ],
+      blocksUpTo: 3,
+      note: '<span class="hl-c">C</span> completes at t = 100 with a turnaround of 100 — for a job that only needed <strong>5 units</strong> of CPU. That\'s a 20× inflation due to queuing delay. Job <span class="hl-d">D</span> (burst = 25) starts running.'
+    },
+    {
+      time: 125,
+      queue: [
+        { name: 'A', state: 'done' },
+        { name: 'B', state: 'done' },
+        { name: 'C', state: 'done' },
+        { name: 'D', state: 'done' },
+        { name: 'E', state: 'next' }
+      ],
+      blocksUpTo: 4,
+      note: '<span class="hl-d">D</span> finishes at t = 125 (turnaround = 125, for 25 units of actual work). Only <span class="hl-e">E</span> (burst = 10) remains — the last victim of the convoy.'
+    },
+    {
+      time: 135,
+      queue: [
+        { name: 'A', state: 'done' },
+        { name: 'B', state: 'done' },
+        { name: 'C', state: 'done' },
+        { name: 'D', state: 'done' },
+        { name: 'E', state: 'done' }
+      ],
+      blocksUpTo: 5,
+      note: 'All jobs complete. Turnaround times:'
+        + '<div class="stats-row">'
+        + chipHtml('A', 80) + chipHtml('B', 95) + chipHtml('C', 100) + chipHtml('D', 125) + chipHtml('E', 135)
+        + '</div>'
+        + '<br>Average turnaround = <span class="math">(80 + 95 + 100 + 125 + 135) &#47; 5 = <strong>107</strong></span>'
+        + '<br>Under <strong>SJF</strong> (C → E → B → D → A), the average would be just <span class="math"><strong>48</strong></span> — a <strong>2.2× improvement</strong>. The single heavyweight job at the front of the FIFO queue inflated the average turnaround by 59 extra units.'
+    }
+  ];
+
+  let current = 0;
+
+  const queueArea     = document.getElementById('queue-area');
+  const ganttTrack    = document.getElementById('gantt-track');
+  const tickRow       = document.getElementById('tick-row');
+  const noteText      = document.getElementById('note-text');
+  const stepLabel     = document.getElementById('step-label');
+  const timeBadge     = document.getElementById('time-badge');
+  const btnPrev       = document.getElementById('btn-prev');
+  const btnNext       = document.getElementById('btn-next');
+  const btnPrev2      = document.getElementById('btn-prev2');
+  const btnNext2      = document.getElementById('btn-next2');
+  const dotsContainer = document.getElementById('step-dots');
+
+  snapshots.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'step-dot';
+    dot.addEventListener('click', () => goTo(i));
+    dotsContainer.appendChild(dot);
+  });
+
+  function render() {
+    const snap = snapshots[current];
+
+    stepLabel.textContent = (current + 1) + ' / ' + snapshots.length;
+    document.querySelectorAll('.step-dot').forEach((d, i) =>
+      d.classList.toggle('active', i === current)
+    );
+
+    timeBadge.textContent = 't = ' + snap.time;
+
+    btnPrev.disabled = btnPrev2.disabled = current === 0;
+    btnNext.disabled = btnNext2.disabled = current === snapshots.length - 1;
+
+    // Queue
+    queueArea.innerHTML = '';
+    snap.queue.forEach((job, idx) => {
+      if (idx > 0) {
+        const sep = document.createElement('div');
+        sep.className = 'queue-sep';
+        sep.innerHTML = '&#8594;';
+        queueArea.appendChild(sep);
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'queue-job';
+
+      const box = document.createElement('div');
+      box.className = 'queue-box';
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = job.name;
+
+      const burstEl = document.createElement('span');
+      burstEl.className = 'burst-label';
+      burstEl.textContent = BURSTS[job.name];
+
+      box.appendChild(nameEl);
+      box.appendChild(burstEl);
+
+      if (job.state === 'next') {
+        box.classList.add('filled');
+        box.style.background = COLORS[job.name];
+      } else if (job.state === 'waiting') {
+        box.classList.add('outlined');
+        box.style.borderColor = COLORS[job.name];
+        box.style.color = COLORS[job.name];
+      } else {
+        box.classList.add('done');
+      }
+
+      const tag = document.createElement('div');
+      tag.className = 'queue-tag' + (job.state === 'next' ? ' next' : '');
+      tag.textContent = job.state === 'next' ? '▸ next' : job.state === 'done' ? 'done' : '';
+
+      wrapper.appendChild(box);
+      wrapper.appendChild(tag);
+      queueArea.appendChild(wrapper);
+    });
+
+    // Gantt
+    ganttTrack.innerHTML = '';
+    for (let i = 0; i < snap.blocksUpTo; i++) {
+      const block = execBlocks[i];
+      const el = document.createElement('div');
+      el.className = 'gantt-block';
+      el.style.left       = pct(block.start);
+      el.style.width      = pct(block.end - block.start);
+      el.style.background = COLORS[block.name];
+
+      const widthRatio = (block.end - block.start) / TOTAL_TIME;
+      if (widthRatio > 0.05) {
+        const lbl = document.createElement('span');
+        lbl.textContent = block.name;
+        el.appendChild(lbl);
+      }
+      if (widthRatio > 0.09) {
+        const dur = document.createElement('span');
+        dur.className = 'block-dur';
+        dur.textContent = (block.end - block.start);
+        el.appendChild(dur);
+      }
+      ganttTrack.appendChild(el);
+    }
+
+    if (snap.time > 0 && snap.time < TOTAL_TIME) {
+      const cursor = document.createElement('div');
+      cursor.className = 'gantt-cursor';
+      cursor.style.left = pct(snap.time);
+      ganttTrack.appendChild(cursor);
+    }
+
+    // Ticks — show key transition points + regular intervals
+    tickRow.innerHTML = '';
+    const transitionTicks = new Set([0, 80, 95, 100, 125, 135]);
+    const regularTicks = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135];
+    const allTicks = new Set([...transitionTicks, ...regularTicks]);
+    const sorted = [...allTicks].sort((a, b) => a - b);
+
+    // Remove ticks too close together (< 6 units)
+    const final = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = final[final.length - 1];
+      if (sorted[i] - prev >= 6) {
+        final.push(sorted[i]);
+      } else if (transitionTicks.has(sorted[i]) && !transitionTicks.has(prev)) {
+        final[final.length - 1] = sorted[i];
+      }
+    }
+
+    final.forEach(v => {
+      const mark = document.createElement('div');
+      mark.className = 'tick-mark';
+      mark.style.left = pct(v);
+      mark.textContent = v;
+      tickRow.appendChild(mark);
+    });
+
+    noteText.innerHTML = snap.note;
+  }
+
+  function pct(val) {
+    return (val / TOTAL_TIME * 100) + '%';
+  }
+
+  function goTo(i) {
+    current = Math.max(0, Math.min(snapshots.length - 1, i));
+    render();
+  }
+
+  btnPrev.addEventListener('click',  () => goTo(current - 1));
+  btnNext.addEventListener('click',  () => goTo(current + 1));
+  btnPrev2.addEventListener('click', () => goTo(current - 1));
+  btnNext2.addEventListener('click', () => goTo(current + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')  goTo(current - 1);
+    if (e.key === 'ArrowRight') goTo(current + 1);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
